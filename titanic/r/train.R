@@ -228,11 +228,14 @@ else{
 # Submission
 # Test set has same columns as training set but misses the target variable ($survived)
 # ----------------------------------------------------------------------------
-#pred = predict(linearEns, test, type='prob')[,2]
-#pred = predict(greedyEns, test)
-#pred = predict(models$gbm, test)
-#levels(pred) = c(0,1)
-#pred = ifelse(pred > 0.5, 1, 0)
+predProbL = predict(linearEns, test, type='prob')
+predL = ifelse(predProbL$no > 0.5, 1, 0)
+predProbG = predict(greedyEns, test)
+predG = ifelse(predProbG > 0.5, 1, 0)
+predProbB = predict(models$gbm, test, type='prob')
+predB = ifelse(predProbB$yes > 0.5, 1, 0)
 
-#submit = data.frame(PassengerId=test$passengerid, Survived=pred)
-#write.csv(submit, file="data/prediction.csv", row.names=F)
+#levels(pred) = c(0,1)
+
+submit = data.frame(PassengerId=test$passengerid, Survived=predL)
+write.csv(submit, file="data/prediction.csv", row.names=F)
