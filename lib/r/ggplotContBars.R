@@ -4,9 +4,10 @@
 library(reshape)
 
 # ----------------------------------------------------------------------------
-ggplotContBars = function(data, xv, yv, propPerGroup=F, position='stack', colors=c("black", "grey"))
+ggplotContBars = function(data, xv, yv, propPerGroup=F, position='stack', colors=c("black", "grey"), title=NULL)
 {
-  pos = if(position=='stack') 'stack' else 'dodge' # avoid "facet" case
+  w = 0.8
+  pos = if(position=='stack') 'stack' else position_dodge(width=w) # avoid "facet" case
   
   p = NA
   if(propPerGroup)
@@ -20,25 +21,28 @@ ggplotContBars = function(data, xv, yv, propPerGroup=F, position='stack', colors
     else
       ggplot(ct, aes_string(x=names(ct)[1], y=names(ct)[3], fill=names(ct)[2]))      
     
-    p = p + geom_bar(stat = "identity", position=pos)      
+    p = p + geom_bar(stat = "identity", position=pos, width=0.9*w)      
   }
   else
   {
     xvar = if(position == 'facet') yv else xv
     p = ggplot(data, aes_string(x=xvar, fill=yv)) +
-      geom_bar(aes(y = ..count.. / sum(..count..)), position=pos)
+      geom_bar(aes(y = ..count.. / sum(..count..)), position=pos, width=0.9*w)
     
     if (position == 'facet')
       p = p + facet_wrap(as.formula(sprintf('~%s', xv)))
   }
   
-  p = p + theme_bw() + 
+  p = p + theme_classic() + 
     scale_fill_manual(values=colors) + 
     scale_y_continuous(labels=percent) +
-    ylab("") + guides(fill=F)
+    ylab("") + xlab("") + guides(fill=F)
   
-  if (position == 'facet')
-    p = p + xlab(yv)
+#  if ((position == 'facet') & (is.null(title)))
+#    p = p + xlab(yv)
+  
+  if (!is.null(title))
+    p = p + ggtitle(title)
   
   return(p)
 }

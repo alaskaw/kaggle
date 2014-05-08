@@ -4,3 +4,5 @@ env
 *.Rdata
 *.RData
 figures/
+data/
+.Rproj.user

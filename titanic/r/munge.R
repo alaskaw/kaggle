@@ -118,7 +118,16 @@ length(unique(data$ticket))
 str(data$fare)
 sum(is.na(data$fare)) # One NA!
 nai = which(is.na(data$fare))
-data$fare[nai] = median(data$fare, na.rm=T)
+data$fare[nai] = 0 #median(data$fare, na.rm=T)
+
+n0 = which(data$fare==0)
+data[n0,]
+summary(data$fare)
+farefit = rpart(fare ~ pclass + sex + age + embarked + title + familysize, data=data[data$fare != 0, ], method="anova")
+data$fare[n0] = predict(farefit, data[n0, ])
+summary(data$age) # pretty similar overall statistic, which is good
+data[n0,]
+
 hist(data$fare,50)
 hist(log(data$fare),50)
 u = unique(data$fare)
