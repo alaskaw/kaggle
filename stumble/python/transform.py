@@ -3,7 +3,8 @@ import json
 import numpy as np
 import pandas as pd
 from scipy import sparse
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin
+from sklearn.preprocessing import binarize
 from urlparse import urlparse
 
 # Helpers
@@ -61,48 +62,30 @@ class Transformer(TransformerMixin):
 # Or for use in a model stack (an estimator trained using as features the predictions of other models)
 class ModelTransformer(TransformerMixin):
     ''' Use model predictions as transformer '''
-    def __init__(self, model):
+    def __init__(self, model, probs=True):
         self.model = model
+        self.probs = probs
+
+    def get_params(self, deep=True):
+        return dict(model=self.model, probs=self.probs)
 
     def fit(self, *args, **kwargs):
         self.model.fit(*args, **kwargs)
         return self
 
     def transform(self, X, **transform_params):
-        Xtrf = self.model.predict(X)
+        if self.probs:
+            Xtrf = self.model.predict_proba(X)[:, 1]
+        else:
+            Xtrf = self.model.predict(X)
         return unsquash(Xtrf)
 
 
-# Simple reporter returning top_n most important text features from TfidfVectorizer
-class TfidfReporter(Transformer):
-    def __init__(self, model, top_n=10, verbose=False):
-        self.model = model
-        self.top_n = top_n
-        self.verbose = verbose
-
-    def get_params(self, deep=True):
-        return dict(model=self.model, top_n=self.top_n, verbose=self.verbose)
-
-    def transform(self, X, **transform_params):
-        if self.verbose: print "Tfidf report (transform):"
-        try:
-            feature_names = self.model.get_feature_names()
-            indices = np.argsort(self.model._tfidf.idf_)[::-1]
-            if self.verbose:
-                for i in indices[:self.top_n]:
-                    print feature_names[i], " - ", self.model._tfidf.idf_[i]
-                print "\n"
-        except ValueError:
-            if self.verbose:
-                print "Tfidf doesn't seem to have a vocabulary o-O\n"
-        return X
-
-
 class FeatureStack(BaseEstimator, TransformerMixin):
-    """Stacks several transformer objects to yield concatenated features. Similar to FeatureUnion,
+    '''Stacks several transformer objects to yield concatenated features. Similar to FeatureUnion,
     a list of tuples ``(name, estimator)`` is passed to the constructor. Not parallel. But
     useful for debugging when e.g. FeatureUnion doesn't work
-    """
+    '''
     def __init__(self, transformer_list):
         self.transformer_list = transformer_list
 
@@ -144,9 +127,36 @@ class FeatureStack(BaseEstimator, TransformerMixin):
             return out
 
 
+class EnsembleBinaryClassifier(BaseEstimator, ClassifierMixin, TransformerMixin):
+    ''' Average or majority-vote several different classifiers. Assumes input is a matrix of individual predictions,
+        such as the output of a FeatureUnion of ModelTransformers [n_samples, n=predictors].
+        Also see http://sebastianraschka.com/Articles/2014_ensemble_classifier.html.'''
 
-# Extract columns from a pandas df
+    def __init__(self, mode, weights=None):
+        self.mode = mode
+        self.weights = weights
+
+    def fit(self, X, y=None):
+        return self
+
+    def predict_proba(self, X):
+        ''' Predict (weighted) probabilities '''
+        probs = np.average(X, axis=1, weights=self.weights)
+        return np.column_stack((1-probs, probs))
+
+    def predict(self, X):
+        ''' Predict class labels. '''
+        if self.mode == 'average':
+            return binarize(self.predict_proba(X)[:,[1]], 0.5)
+        else:
+            res = binarize(X, 0.5)
+            return np.apply_along_axis(lambda x: np.bincount(x.astype(int), self.weights).argmax(), axis=1, arr=res)
+
+
+
 class Select(Transformer):
+    '''  Extract specified columns from a pandas df or numpy array '''
+
     def __init__(self, columns=0, to_np=True):
         self.columns = columns
         self.to_np = to_np
@@ -156,30 +166,28 @@ class Select(Transformer):
 
     def transform(self, X, **transform_params):
         if isinstance(X, pd.DataFrame):
-
             allint = isinstance(self.columns, int) or (isinstance(self.columns, list) and all([isinstance(x, int) for x in self.columns]))
             if allint:
                 res = X.ix[:, self.columns]
             elif all([isinstance(x, str) for x in self.columns]):
                 res = X[self.columns]
             else:
-                print "TrfColumnsFilter: mixed or wrong column type. Not filtering."
+                print "Select error: mixed or wrong column type."
                 res = X
 
-            # to numpy ?
             if self.to_np:
                 res = unsquash(res.values)
         else:
-            #print "Select cols: ", self.columns, " on ",  X.shape
             res = unsquash(X[:, self.columns])
 
         return res
 
 
 
-# Extract json encoded fields from a numpy array
-# Returns (iterable) numpy array so it can be used as input to e.g. Tdidf
 class JsonFields(Transformer):
+    ''' Extract json encoded fields from a numpy array. Returns (iterable) numpy array so it can be used
+        as input to e.g. Tdidf '''
+
     def __init__(self, column, fields=[], join=True):
         self.column = column
         self.fields = fields
@@ -190,7 +198,7 @@ class JsonFields(Transformer):
 
     def transform(self, X, **transform_params):
         col = Select(self.column, to_np=True).transform(X)
-        res = np.vectorize(extractJson, excluded=['fields'])(col, fields=self.fields)
+        res = np.vectorize(extract_json, excluded=['fields'])(col, fields=self.fields)
         return res
 
 
@@ -205,7 +213,7 @@ class UrlField(Transformer):
 
     def transform(self, X, **transform_params):
         col = Select(self.column, to_np=True).transform(X)
-        res = np.vectorize(extractUrl)(col, field=self.field)
+        res = np.vectorize(extract_url)(col, field=self.field)
         return res
 
 
